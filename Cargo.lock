@@ -13,13 +13,34 @@ dependencies = [
 name = "asbestos"
 version = "0.1.0"
 dependencies = [
+ "asbestos_shared",
+]
+
+[[package]]
+name = "asbestos_cli"
+version = "0.1.0"
+dependencies = [
+ "asbestos",
  "ctrlc",
- "detour",
- "lazy_static",
- "named_pipe",
  "structopt",
  "syringe",
+]
+
+[[package]]
+name = "asbestos_payload"
+version = "0.1.0"
+dependencies = [
+ "asbestos_shared",
+ "detour",
+ "lazy_static",
  "winapi 0.3.8",
+]
+
+[[package]]
+name = "asbestos_shared"
+version = "0.1.0"
+dependencies = [
+ "named_pipe",
 ]
 
 [[package]]

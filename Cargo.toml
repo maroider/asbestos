@@ -1,19 +1,7 @@
-[package]
-name = "asbestos"
-version = "0.1.0"
-authors = ["Markus Røyset <maroider@protonmail.com>"]
-edition = "2018"
-
-[lib]
-crate-type = ["cdylib"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-ctrlc = "3.1.4"
-detour = "0.7.1"
-lazy_static = "1.4.0"
-named_pipe = "0.4.1"
-structopt = "0.3.13"
-syringe = { git = "https://github.com/maroider/syringe", rev = "ef94577" }
-winapi = { version = "0.3.8", features = ["libloaderapi", "winnt", "winuser"] }
+[workspace]
+members = [
+    "asbestos",
+    "asbestos_cli",
+    "asbestos_payload",
+    "asbestos_shared",
+]

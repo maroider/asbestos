@@ -1,0 +1,16 @@
+[package]
+name = "asbestos_payload"
+version = "0.1.0"
+authors = ["Markus Røyset <maroider@protonmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+asbestos_shared = { path = "../asbestos_shared" }
+detour = "0.7.1"
+lazy_static = "1.4.0"
+winapi = { version = "0.3.8", features = ["libloaderapi", "winnt", "winuser"] }

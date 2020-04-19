@@ -46,5 +46,3 @@ pub unsafe fn cstrlen(pcstr: LPCSTR) -> usize {
     }
     len
 }
-
-include!("shared.rs");

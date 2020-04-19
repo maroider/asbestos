@@ -4,10 +4,9 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use named_pipe::PipeOptions;
 use structopt::StructOpt;
 
-include!("shared.rs");
+use asbestos::shared::{named_pipe::PipeOptions, named_pipe_name};
 
 static CTRL_C: AtomicBool = AtomicBool::new(false);
 
@@ -23,6 +22,7 @@ fn main() {
 
     let current_exe = env::current_exe().expect("asbestos could not locate its own executable");
     let mut dll = current_exe.clone();
+    dll.set_file_name("asbestos_payload");
     dll.set_extension("dll");
 
     syringe::inject_dll(opts.pid, &dll).unwrap();

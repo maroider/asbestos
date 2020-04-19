@@ -8,11 +8,12 @@ use std::{
 };
 
 use lazy_static::lazy_static;
-use named_pipe::PipeClient;
 use winapi::{
     shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID, TRUE},
     um::winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH},
 };
+
+use asbestos_shared::{named_pipe::PipeClient, named_pipe_name};
 
 mod hooks;
 mod util;
@@ -43,7 +44,7 @@ fn get_pipe() -> MutexGuard<'static, Option<PipeClient>> {
 }
 
 fn injected_main() -> Result<(), Box<dyn Error>> {
-    let mut pipe = PipeClient::connect_ms(util::named_pipe_name(process::id()), 500)?;
+    let mut pipe = PipeClient::connect_ms(named_pipe_name(process::id()), 500)?;
     unsafe {
         hooks::file::openfile_hook(&mut pipe)?;
         hooks::file::createfilea_hook(&mut pipe)?;
