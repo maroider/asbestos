@@ -1,7 +1,10 @@
 use std::{
     error::Error,
+    ffi::OsString,
     io::{Read, Write},
-    mem, ptr,
+    mem,
+    os::windows::ffi::OsStringExt,
+    ptr, slice,
 };
 
 use detour::static_detour;
@@ -15,7 +18,10 @@ use winapi::{
     },
 };
 
-use crate::{c_str, util::get_module_symbol_address};
+use crate::{
+    c_str, get_pipe,
+    util::{cstrlen, cwstrlen, get_module_symbol_address},
+};
 
 static_detour! {
     static OpenFileHook: unsafe extern "system" fn(
@@ -100,14 +106,27 @@ pub fn createfilea_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    unsafe {
-        MessageBoxA(
-            ptr::null_mut(),
-            c_str!("CreateFileA"),
-            c_str!(r#"File was "opened""#),
-            0,
-        )
+    let mut pipe = get_pipe();
+    let pipe = pipe.as_mut().unwrap();
+
+    let file_name = {
+        if lpFileName != ptr::null_mut() {
+            let file_name_len = unsafe { cstrlen(lpFileName) };
+            let name_slice =
+                unsafe { slice::from_raw_parts(lpFileName as *const u8, file_name_len) };
+            let name_string = String::from_utf8_lossy(name_slice).into_owned();
+            Some(name_string)
+        } else {
+            None
+        }
     };
+
+    writeln!(
+        pipe,
+        "CreateFileA(lpFileName: {})",
+        file_name.unwrap_or_else(|| "[NULL POINTER]".into())
+    )
+    .ok();
     unsafe {
         CreateFileAHook.call(
             lpFileName,
@@ -169,14 +188,27 @@ pub fn createfilew_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    unsafe {
-        MessageBoxA(
-            ptr::null_mut(),
-            c_str!("CreateFileW"),
-            c_str!(r#"File was "opened""#),
-            0,
-        )
+    let mut pipe = get_pipe();
+    let pipe = pipe.as_mut().unwrap();
+
+    let file_name = {
+        if lpFileName != ptr::null_mut() {
+            let file_name_len = unsafe { cwstrlen(lpFileName) };
+            let name_slice = unsafe { slice::from_raw_parts(lpFileName, file_name_len) };
+            let name_os_string = OsString::from_wide(name_slice);
+            Some(name_os_string.to_string_lossy().into_owned())
+        } else {
+            None
+        }
     };
+
+    writeln!(
+        pipe,
+        "CreateFileW(lpFileName: {})",
+        file_name.unwrap_or_else(|| "[NULL POINTER]".into())
+    )
+    .ok();
+
     unsafe {
         CreateFileWHook.call(
             lpFileName,
