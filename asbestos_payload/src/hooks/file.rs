@@ -18,6 +18,8 @@ use winapi::{
     },
 };
 
+use asbestos_shared::{log_info, log_trace, protocol::Connection};
+
 use crate::{
     c_str, get_pipe,
     util::{cstrlen, cwstrlen, get_module_symbol_address},
@@ -33,14 +35,16 @@ static_detour! {
 
 type FnOpenFile = unsafe extern "system" fn(LPCSTR, LPOFSTRUCT, UINT) -> HFILE;
 
-pub unsafe fn openfile_hook(mut pipe: impl Read + Write) -> Result<(), Box<dyn Error>> {
-    writeln!(pipe, "Locating OpenFile's address")?;
+pub unsafe fn openfile_hook<R: Read, W: Write>(
+    conn: &mut Connection<R, W>,
+) -> Result<(), Box<dyn Error>> {
+    log_trace!(conn, "Locating OpenFile's address")?;
     let address = get_module_symbol_address("kernel32.dll", "OpenFile").unwrap();
     let target: FnOpenFile = mem::transmute(address);
 
-    writeln!(pipe, "Initializing OpenFile's hook")?;
+    log_trace!(conn, "Initializing OpenFile's hook")?;
     OpenFileHook.initialize(target, openfile_detour)?.enable()?;
-    writeln!(pipe, "OpenFile's hook has been initialized")?;
+    log_info!(conn, "OpenFile's hook has been initialized")?;
 
     Ok(())
 }
@@ -82,16 +86,18 @@ type FnCreateFileA = unsafe extern "system" fn(
     HANDLE,
 ) -> HANDLE;
 
-pub unsafe fn createfilea_hook(mut pipe: impl Read + Write) -> Result<(), Box<dyn Error>> {
-    writeln!(pipe, "Locating CreateFileA's address")?;
+pub unsafe fn createfilea_hook<R: Read, W: Write>(
+    conn: &mut Connection<R, W>,
+) -> Result<(), Box<dyn Error>> {
+    log_trace!(conn, "Locating CreateFileA's address")?;
     let address = get_module_symbol_address("kernel32.dll", "CreateFileA").unwrap();
     let target: FnCreateFileA = mem::transmute(address);
 
-    writeln!(pipe, "Initializing CreateFileA's hook")?;
+    log_trace!(conn, "Initializing CreateFileA's hook")?;
     CreateFileAHook
         .initialize(target, createfilea_detour)?
         .enable()?;
-    writeln!(pipe, "CreateFileA's hook has been initialized")?;
+    log_info!(conn, "CreateFileA's hook has been initialized")?;
 
     Ok(())
 }
@@ -106,8 +112,8 @@ pub fn createfilea_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    let mut pipe = get_pipe();
-    let pipe = pipe.as_mut().unwrap();
+    let mut conn = get_pipe();
+    let conn = conn.as_mut().unwrap();
 
     let file_name = {
         if lpFileName != ptr::null_mut() {
@@ -121,8 +127,8 @@ pub fn createfilea_detour(
         }
     };
 
-    writeln!(
-        pipe,
+    log_info!(
+        conn,
         "CreateFileA(lpFileName: {})",
         file_name.unwrap_or_else(|| "[NULL POINTER]".into())
     )
@@ -164,16 +170,18 @@ type FnCreateFileW = unsafe extern "system" fn(
     HANDLE,
 ) -> HANDLE;
 
-pub unsafe fn createfilew_hook(mut pipe: impl Read + Write) -> Result<(), Box<dyn Error>> {
-    writeln!(pipe, "Locating CreateFileW's address")?;
+pub unsafe fn createfilew_hook<R: Read, W: Write>(
+    conn: &mut Connection<R, W>,
+) -> Result<(), Box<dyn Error>> {
+    log_trace!(conn, "Locating CreateFileW's address")?;
     let address = get_module_symbol_address("kernel32.dll", "CreateFileW").unwrap();
     let target: FnCreateFileW = mem::transmute(address);
 
-    writeln!(pipe, "Initializing CreateFileW's hook")?;
+    log_trace!(conn, "Initializing CreateFileW's hook")?;
     CreateFileWHook
         .initialize(target, createfilew_detour)?
         .enable()?;
-    writeln!(pipe, "CreateFileW's hook has been initialized")?;
+    log_info!(conn, "CreateFileW's hook has been initialized")?;
 
     Ok(())
 }
@@ -188,8 +196,8 @@ pub fn createfilew_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    let mut pipe = get_pipe();
-    let pipe = pipe.as_mut().unwrap();
+    let mut conn = get_pipe();
+    let conn = conn.as_mut().unwrap();
 
     let file_name = {
         if lpFileName != ptr::null_mut() {
@@ -202,8 +210,8 @@ pub fn createfilew_detour(
         }
     };
 
-    writeln!(
-        pipe,
+    log_info!(
+        conn,
         "CreateFileW(lpFileName: {})",
         file_name.unwrap_or_else(|| "[NULL POINTER]".into())
     )

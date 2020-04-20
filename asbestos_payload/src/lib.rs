@@ -2,18 +2,24 @@
 
 use std::{
     error::Error,
-    io::Write,
+    io::BufReader,
     process,
     sync::{Mutex, MutexGuard, TryLockError},
 };
 
 use lazy_static::lazy_static;
 use winapi::{
-    shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID, TRUE},
+    shared::minwindef::{BOOL, DWORD, FALSE, HINSTANCE, LPVOID, TRUE},
     um::winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH},
 };
 
-use asbestos_shared::{named_pipe::PipeClient, named_pipe_name};
+use asbestos_shared::{
+    log_error, log_info,
+    named_pipe::PipeClient,
+    named_pipe_name,
+    protocol::{Connection, Message},
+    PipeEnd,
+};
 
 mod hooks;
 mod util;
@@ -25,11 +31,13 @@ macro_rules! c_str {
     };
 }
 
+type PipeConnection = Connection<BufReader<PipeClient>, PipeClient>;
+
 lazy_static! {
-    static ref PIPE: Mutex<Option<PipeClient>> = Mutex::new(None);
+    static ref PIPE: Mutex<Option<PipeConnection>> = Mutex::new(None);
 }
 
-fn get_pipe() -> MutexGuard<'static, Option<PipeClient>> {
+fn get_pipe() -> MutexGuard<'static, Option<PipeConnection>> {
     loop {
         let res = PIPE.try_lock();
         match res {
@@ -43,14 +51,20 @@ fn get_pipe() -> MutexGuard<'static, Option<PipeClient>> {
     }
 }
 
-fn injected_main() -> Result<(), Box<dyn Error>> {
-    let mut pipe = PipeClient::connect_ms(named_pipe_name(process::id()), 500)?;
+fn init_payload() -> Result<(), Box<dyn Error>> {
+    let mut conn = Connection::new(
+        BufReader::new(PipeClient::connect_ms(
+            named_pipe_name(process::id(), PipeEnd::Tx),
+            500,
+        )?),
+        PipeClient::connect_ms(named_pipe_name(process::id(), PipeEnd::Rx), 500)?,
+    );
     unsafe {
-        hooks::file::openfile_hook(&mut pipe)?;
-        hooks::file::createfilea_hook(&mut pipe)?;
-        hooks::file::createfilew_hook(&mut pipe)?;
+        hooks::file::openfile_hook(&mut conn)?;
+        hooks::file::createfilea_hook(&mut conn)?;
+        hooks::file::createfilew_hook(&mut conn)?;
     }
-    *PIPE.lock().unwrap() = Some(pipe);
+    *PIPE.lock().unwrap() = Some(conn);
     Ok(())
 }
 
@@ -62,16 +76,23 @@ pub unsafe extern "system" fn DllMain(
     _reserved: LPVOID,
 ) -> BOOL {
     if call_reason == DLL_PROCESS_ATTACH {
-        // A console may be useful for printing to 'stdout'
-        // winapi::um::consoleapi::AllocConsole();
-
-        // Preferably a thread should be created here instead, since as few
-        // operations as possible should be performed within `DllMain`.
-        injected_main().is_ok() as BOOL
+        match init_payload() {
+            Ok(_) => {
+                let mut conn = PIPE.lock().unwrap();
+                let conn = conn.as_mut().unwrap();
+                log_info!(conn, "Payload initialized").ok();
+                TRUE
+            }
+            Err(err) => {
+                let mut pipe = PIPE.lock().unwrap().take().unwrap();
+                log_error!(pipe, "Payload initialization failed: {}", err).ok();
+                FALSE
+            }
+        }
     } else if call_reason == DLL_PROCESS_DETACH {
         let f: fn() -> Result<(), Box<dyn Error>> = || {
-            if let Some(mut pipe) = PIPE.lock()?.take() {
-                writeln!(pipe, "PROCESS_DETACH")?;
+            if let Some(mut connection) = PIPE.lock()?.take() {
+                connection.write_message(Message::ProcessDetach).ok();
             }
             Ok(())
         };

@@ -1,12 +1,17 @@
 use std::{
     env,
-    io::{BufRead, BufReader},
+    io::BufReader,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use structopt::StructOpt;
 
-use asbestos::shared::{named_pipe::PipeOptions, named_pipe_name};
+use asbestos::shared::{
+    named_pipe::PipeOptions,
+    named_pipe_name,
+    protocol::{Connection, Message, ProtocolError},
+    PipeEnd,
+};
 
 static CTRL_C: AtomicBool = AtomicBool::new(false);
 
@@ -16,7 +21,11 @@ fn main() {
     ctrlc::set_handler(move || CTRL_C.store(true, Ordering::SeqCst))
         .expect("Error setting Ctrl-C handler");
 
-    let connecting_server = PipeOptions::new(named_pipe_name(opts.pid))
+    let connecting_server_rx = PipeOptions::new(named_pipe_name(opts.pid, PipeEnd::Rx))
+        .single()
+        .expect("Could not open named pipe");
+
+    let connecting_server_tx = PipeOptions::new(named_pipe_name(opts.pid, PipeEnd::Tx))
         .single()
         .expect("Could not open named pipe");
 
@@ -28,28 +37,58 @@ fn main() {
     syringe::inject_dll(opts.pid, &dll).unwrap();
 
     eprintln!("Waiting for connection from {}", opts.pid);
-    let pipe = match connecting_server.wait_ms(5000) {
+    let pipe_rx = match connecting_server_rx.wait_ms(3000) {
         Err(err) => {
             eprintln!("Platform IO error: {}", err);
             return;
         }
         Ok(ok) => match ok {
             Err(_) => {
-                eprintln!("{} did not connect within 5 seconds", opts.pid);
+                eprintln!("{} did not connect within 3 seconds", opts.pid);
                 return;
             }
             Ok(ok) => ok,
         },
     };
-    let mut pipe = BufReader::new(pipe);
-    let mut buf = String::new();
-    loop {
-        buf.clear();
-        if let Err(err) = pipe.read_line(&mut buf) {
-            eprintln!("Could not read from pipe to {}: {}", opts.pid, err);
+    let pipe_tx = match connecting_server_tx.wait_ms(3000) {
+        Err(err) => {
+            eprintln!("Platform IO error: {}", err);
+            return;
         }
-        if buf.len() > 0 {
-            eprintln!("{}: {}", opts.pid, buf.trim_end());
+        Ok(ok) => match ok {
+            Err(_) => {
+                eprintln!("{} did not connect within 3 seconds", opts.pid);
+                return;
+            }
+            Ok(ok) => ok,
+        },
+    };
+    let mut connection = Connection::new(BufReader::new(pipe_rx), pipe_tx);
+    loop {
+        match connection.read_message() {
+            Ok(msg) => match msg {
+                Message::LogMessage(log_message) => {
+                    eprintln!(
+                        "{}: [{}:{}] {}",
+                        opts.pid,
+                        log_message
+                            .module_path
+                            .trim_start_matches("asbestos_payload::"),
+                        log_message.line,
+                        log_message.message
+                    );
+                }
+                Message::ProcessDetach => {
+                    eprintln!("{}: Payload unloaded", opts.pid);
+                    return;
+                }
+            },
+            Err(err) => {
+                if matches!(err, ProtocolError::Disconnected) {
+                    return;
+                }
+                eprintln!("{}: {:?} => {}", opts.pid, err, err)
+            }
         }
         if CTRL_C.load(Ordering::SeqCst) {
             eprintln!("Ctrl-C");
