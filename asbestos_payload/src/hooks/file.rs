@@ -14,14 +14,13 @@ use winapi::{
         minwinbase::LPSECURITY_ATTRIBUTES,
         winbase::LPOFSTRUCT,
         winnt::{HANDLE, LPCSTR, LPCWSTR},
-        winuser::MessageBoxA,
     },
 };
 
 use asbestos_shared::{log_info, log_trace, protocol::Connection};
 
 use crate::{
-    c_str, get_pipe,
+    get_pipe,
     util::{cstrlen, cwstrlen, get_module_symbol_address},
 };
 
@@ -51,14 +50,27 @@ pub unsafe fn openfile_hook<R: Read, W: Write>(
 
 #[allow(non_snake_case)]
 pub fn openfile_detour(lpFileName: LPCSTR, lpReOpenBuff: LPOFSTRUCT, uStyle: UINT) -> HFILE {
-    unsafe {
-        MessageBoxA(
-            ptr::null_mut(),
-            c_str!("OpenFile"),
-            c_str!(r#"File was "opened""#),
-            0,
-        )
+    let mut conn = get_pipe();
+    let conn = conn.as_mut().unwrap();
+
+    let file_name = {
+        if lpFileName != ptr::null_mut() {
+            let file_name_len = unsafe { cstrlen(lpFileName) };
+            let name_slice =
+                unsafe { slice::from_raw_parts(lpFileName as *const u8, file_name_len) };
+            let name_string = String::from_utf8_lossy(name_slice).into_owned();
+            Some(name_string)
+        } else {
+            None
+        }
     };
+
+    log_info!(
+        conn,
+        "OpenFile(lpFileName: {})",
+        file_name.unwrap_or_else(|| "[NULL POINTER]".into())
+    )
+    .ok();
     unsafe { OpenFileHook.call(lpFileName, lpReOpenBuff, uStyle) }
 }
 
