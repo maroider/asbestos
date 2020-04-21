@@ -24,6 +24,40 @@ use crate::{
     util::{cstrlen, cwstrlen, get_module_symbol_address},
 };
 
+use super::HookError;
+
+macro_rules! decl_hook_init {
+    ($hook:ident, $hooked_fn_type:ty, $hooked_fn:ident, $init_fn:ident, $module:literal, $detour_fn:ident) => {
+        pub unsafe fn $init_fn<R: Read, W: Write>(
+            conn: &mut Connection<R, W>,
+        ) -> Result<(), Box<dyn Error>> {
+            log_trace!(
+                conn,
+                concat!("Locating ", stringify!($hooked_fn), "'s address")
+            )?;
+            let address = get_module_symbol_address($module, stringify!($hooked_fn)).ok_or(
+                HookError::SymbolAddressNotFound {
+                    module: $module,
+                    symbol: stringify!($hooked_fn),
+                },
+            )?;
+            let target: $hooked_fn_type = mem::transmute(address);
+
+            log_trace!(
+                conn,
+                concat!("Initalizing ", stringify!($hooked_fn), "'s hook")
+            )?;
+            $hook.initialize(target, $detour_fn)?.enable()?;
+            log_info!(
+                conn,
+                concat!(stringify!($hooked_fn), "'s hook has been initialized")
+            )?;
+
+            Ok(())
+        }
+    };
+}
+
 static_detour! {
     static OpenFileHook: unsafe extern "system" fn(
         LPCSTR,
@@ -34,19 +68,14 @@ static_detour! {
 
 type FnOpenFile = unsafe extern "system" fn(LPCSTR, LPOFSTRUCT, UINT) -> HFILE;
 
-pub unsafe fn openfile_hook<R: Read, W: Write>(
-    conn: &mut Connection<R, W>,
-) -> Result<(), Box<dyn Error>> {
-    log_trace!(conn, "Locating OpenFile's address")?;
-    let address = get_module_symbol_address("kernel32.dll", "OpenFile").unwrap();
-    let target: FnOpenFile = mem::transmute(address);
-
-    log_trace!(conn, "Initializing OpenFile's hook")?;
-    OpenFileHook.initialize(target, openfile_detour)?.enable()?;
-    log_info!(conn, "OpenFile's hook has been initialized")?;
-
-    Ok(())
-}
+decl_hook_init!(
+    OpenFileHook,
+    FnOpenFile,
+    OpenFile,
+    openfile_hook,
+    "kernel32.dll",
+    openfile_detour
+);
 
 #[allow(non_snake_case)]
 pub fn openfile_detour(lpFileName: LPCSTR, lpReOpenBuff: LPOFSTRUCT, uStyle: UINT) -> HFILE {
@@ -98,21 +127,14 @@ type FnCreateFileA = unsafe extern "system" fn(
     HANDLE,
 ) -> HANDLE;
 
-pub unsafe fn createfilea_hook<R: Read, W: Write>(
-    conn: &mut Connection<R, W>,
-) -> Result<(), Box<dyn Error>> {
-    log_trace!(conn, "Locating CreateFileA's address")?;
-    let address = get_module_symbol_address("kernel32.dll", "CreateFileA").unwrap();
-    let target: FnCreateFileA = mem::transmute(address);
-
-    log_trace!(conn, "Initializing CreateFileA's hook")?;
-    CreateFileAHook
-        .initialize(target, createfilea_detour)?
-        .enable()?;
-    log_info!(conn, "CreateFileA's hook has been initialized")?;
-
-    Ok(())
-}
+decl_hook_init!(
+    CreateFileAHook,
+    FnCreateFileA,
+    CreateFileA,
+    createfilea_hook,
+    "kernel32.dll",
+    createfilea_detour
+);
 
 #[allow(non_snake_case)]
 pub fn createfilea_detour(
@@ -182,21 +204,14 @@ type FnCreateFileW = unsafe extern "system" fn(
     HANDLE,
 ) -> HANDLE;
 
-pub unsafe fn createfilew_hook<R: Read, W: Write>(
-    conn: &mut Connection<R, W>,
-) -> Result<(), Box<dyn Error>> {
-    log_trace!(conn, "Locating CreateFileW's address")?;
-    let address = get_module_symbol_address("kernel32.dll", "CreateFileW").unwrap();
-    let target: FnCreateFileW = mem::transmute(address);
-
-    log_trace!(conn, "Initializing CreateFileW's hook")?;
-    CreateFileWHook
-        .initialize(target, createfilew_detour)?
-        .enable()?;
-    log_info!(conn, "CreateFileW's hook has been initialized")?;
-
-    Ok(())
-}
+decl_hook_init!(
+    CreateFileWHook,
+    FnCreateFileW,
+    CreateFileW,
+    createfilew_hook,
+    "kernel32.dll",
+    createfilew_detour
+);
 
 #[allow(non_snake_case)]
 pub fn createfilew_detour(

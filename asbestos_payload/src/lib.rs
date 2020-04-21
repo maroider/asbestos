@@ -1,5 +1,3 @@
-// #![recursion_limit = "1024"]
-
 use std::{
     error::Error,
     io::BufReader,
