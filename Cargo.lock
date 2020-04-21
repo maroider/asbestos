@@ -33,6 +33,7 @@ dependencies = [
  "asbestos_shared",
  "detour",
  "lazy_static",
+ "tlhelp32",
  "winapi 0.3.8",
 ]
 
@@ -384,6 +385,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tlhelp32"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5936e992761bd5f177128d5e3c372aaf7f0a30598640887ce2f6b10aa6baa25"
+dependencies = [
+ "widestring",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "typenum"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,6 +435,12 @@ name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
+
+[[package]]
+name = "widestring"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "effc0e4ff8085673ea7b9b2e3c73f6bd4d118810c9009ed8f1e16bd96c331db6"
 
 [[package]]
 name = "winapi"

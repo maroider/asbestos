@@ -8,11 +8,14 @@ use std::{
 use lazy_static::lazy_static;
 use winapi::{
     shared::minwindef::{BOOL, DWORD, FALSE, HINSTANCE, LPVOID, TRUE},
-    um::winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH},
+    um::{
+        handleapi::CloseHandle,
+        processthreadsapi::{GetCurrentThreadId, OpenThread, ResumeThread},
+        winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, THREAD_SUSPEND_RESUME},
+    },
 };
 
 use asbestos_shared::{
-    log_error, log_info,
     named_pipe::PipeClient,
     named_pipe_name,
     protocol::{Connection, Message},
@@ -32,12 +35,12 @@ macro_rules! c_str {
 type PipeConnection = Connection<BufReader<PipeClient>, PipeClient>;
 
 lazy_static! {
-    static ref PIPE: Mutex<Option<PipeConnection>> = Mutex::new(None);
+    static ref CONN: Mutex<Option<PipeConnection>> = Mutex::new(None);
 }
 
 fn get_pipe() -> MutexGuard<'static, Option<PipeConnection>> {
     loop {
-        let res = PIPE.try_lock();
+        let res = CONN.try_lock();
         match res {
             Ok(pipe) => return pipe,
             Err(err) => {
@@ -50,6 +53,7 @@ fn get_pipe() -> MutexGuard<'static, Option<PipeConnection>> {
 }
 
 fn init_payload() -> Result<(), Box<dyn Error>> {
+    dbg!();
     let mut conn = Connection::new(
         BufReader::new(PipeClient::connect_ms(
             named_pipe_name(process::id(), PipeEnd::Tx),
@@ -57,13 +61,43 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
         )?),
         PipeClient::connect_ms(named_pipe_name(process::id(), PipeEnd::Rx), 500)?,
     );
+    dbg!();
+    let startup_info = match dbg!(conn.read_message()?) {
+        Message::StartupInfo(si) => si,
+        _ => Default::default(),
+    };
+    dbg!();
     unsafe {
         hooks::file::openfile_hook(&mut conn)?;
         hooks::file::createfilea_hook(&mut conn)?;
         hooks::file::createfilew_hook(&mut conn)?;
     }
-    *PIPE.lock().unwrap() = Some(conn);
+
+    dbg!();
+
+    if startup_info.main_thread_suspended {
+        resume_main_thread();
+    }
+
+    dbg!();
+
+    *CONN.lock().unwrap() = Some(conn);
     Ok(())
+}
+
+fn resume_main_thread() {
+    let pid = process::id();
+    let current_thread = unsafe { GetCurrentThreadId() };
+    for entry in tlhelp32::Snapshot::new_thread().unwrap() {
+        if entry.owner_process_id == pid && entry.thread_id != current_thread {
+            let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.thread_id) };
+            if handle.is_null() {
+                return;
+            }
+            unsafe { ResumeThread(handle) };
+            unsafe { CloseHandle(handle) };
+        }
+    }
 }
 
 #[no_mangle]
@@ -76,20 +110,21 @@ pub unsafe extern "system" fn DllMain(
     if call_reason == DLL_PROCESS_ATTACH {
         match init_payload() {
             Ok(_) => {
-                let mut conn = PIPE.lock().unwrap();
+                let mut conn = CONN.lock().unwrap();
                 let conn = conn.as_mut().unwrap();
-                log_info!(conn, "Payload initialized").ok();
+                conn.write_message(Message::Initialized).ok();
                 TRUE
             }
             Err(err) => {
-                let mut pipe = PIPE.lock().unwrap().take().unwrap();
-                log_error!(pipe, "Payload initialization failed: {}", err).ok();
+                let mut conn = CONN.lock().unwrap().take().unwrap();
+                conn.write_message(Message::InitializationFailed(err.to_string()))
+                    .ok();
                 FALSE
             }
         }
     } else if call_reason == DLL_PROCESS_DETACH {
         let f: fn() -> Result<(), Box<dyn Error>> = || {
-            if let Some(mut connection) = PIPE.lock()?.take() {
+            if let Some(mut connection) = CONN.lock()?.take() {
                 connection.write_message(Message::ProcessDetach).ok();
             }
             Ok(())

@@ -99,11 +99,21 @@ impl Error for ProtocolError {}
 wrapper_enum! {
     #[derive(Debug, Deserialize, Serialize)]
     pub enum Message {
+        StartupInfo(StartupInfo),
         LogMessage(LogMessage),
+        /// The payload has finished its initalization routine.
+        Initialized,
+        /// The payload encountered an error in its initialization routine.
+        InitializationFailed(String),
         /// The payload was unloaded from the target, either because it was manually unloaded, or because the process
         /// terminated.
         ProcessDetach,
     }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct StartupInfo {
+    pub main_thread_suspended: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
