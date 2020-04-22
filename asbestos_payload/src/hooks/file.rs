@@ -1,11 +1,4 @@
-use std::{
-    error::Error,
-    ffi::OsString,
-    io::{Read, Write},
-    mem,
-    os::windows::ffi::OsStringExt,
-    ptr, slice,
-};
+use std::{ffi::OsString, os::windows::ffi::OsStringExt, ptr, slice};
 
 use detour::static_detour;
 use winapi::{
@@ -17,46 +10,12 @@ use winapi::{
     },
 };
 
-use asbestos_shared::{log_info, log_trace, protocol::Connection};
+use asbestos_shared::{log_info, log_trace};
 
 use crate::{
-    get_pipe,
-    util::{cstrlen, cwstrlen, get_module_symbol_address},
+    decl_hook_init, get_conn,
+    util::{cstrlen, cwstrlen},
 };
-
-use super::HookError;
-
-macro_rules! decl_hook_init {
-    ($hook:ident, $hooked_fn_type:ty, $hooked_fn:ident, $init_fn:ident, $module:literal, $detour_fn:ident) => {
-        pub unsafe fn $init_fn<R: Read, W: Write>(
-            conn: &mut Connection<R, W>,
-        ) -> Result<(), Box<dyn Error>> {
-            log_trace!(
-                conn,
-                concat!("Locating ", stringify!($hooked_fn), "'s address")
-            )?;
-            let address = get_module_symbol_address($module, stringify!($hooked_fn)).ok_or(
-                HookError::SymbolAddressNotFound {
-                    module: $module,
-                    symbol: stringify!($hooked_fn),
-                },
-            )?;
-            let target: $hooked_fn_type = mem::transmute(address);
-
-            log_trace!(
-                conn,
-                concat!("Initalizing ", stringify!($hooked_fn), "'s hook")
-            )?;
-            $hook.initialize(target, $detour_fn)?.enable()?;
-            log_info!(
-                conn,
-                concat!(stringify!($hooked_fn), "'s hook has been initialized")
-            )?;
-
-            Ok(())
-        }
-    };
-}
 
 static_detour! {
     static OpenFileHook: unsafe extern "system" fn(
@@ -79,7 +38,7 @@ decl_hook_init!(
 
 #[allow(non_snake_case)]
 pub fn openfile_detour(lpFileName: LPCSTR, lpReOpenBuff: LPOFSTRUCT, uStyle: UINT) -> HFILE {
-    let mut conn = get_pipe();
+    let mut conn = get_conn();
     let conn = conn.as_mut().unwrap();
 
     let file_name = {
@@ -146,7 +105,7 @@ pub fn createfilea_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    let mut conn = get_pipe();
+    let mut conn = get_conn();
     let conn = conn.as_mut().unwrap();
 
     let file_name = {
@@ -223,7 +182,7 @@ pub fn createfilew_detour(
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: HANDLE,
 ) -> HANDLE {
-    let mut conn = get_pipe();
+    let mut conn = get_conn();
     let conn = conn.as_mut().unwrap();
 
     let file_name = {

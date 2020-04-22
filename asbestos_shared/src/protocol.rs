@@ -105,15 +105,17 @@ wrapper_enum! {
         Initialized,
         /// The payload encountered an error in its initialization routine.
         InitializationFailed(String),
+        ProcessSpawned(ProcessSpawned),
         /// The payload was unloaded from the target, either because it was manually unloaded, or because the process
         /// terminated.
         ProcessDetach,
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct StartupInfo {
     pub main_thread_suspended: bool,
+    pub dont_hook_subprocesses: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -132,4 +134,9 @@ pub enum LogLevel {
     Info,
     Debug,
     Trace,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProcessSpawned {
+    pub pid: u32,
 }

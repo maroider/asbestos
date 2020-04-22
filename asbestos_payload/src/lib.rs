@@ -38,7 +38,7 @@ lazy_static! {
     static ref CONN: Mutex<Option<PipeConnection>> = Mutex::new(None);
 }
 
-fn get_pipe() -> MutexGuard<'static, Option<PipeConnection>> {
+fn get_conn() -> MutexGuard<'static, Option<PipeConnection>> {
     loop {
         let res = CONN.try_lock();
         match res {
@@ -53,7 +53,6 @@ fn get_pipe() -> MutexGuard<'static, Option<PipeConnection>> {
 }
 
 fn init_payload() -> Result<(), Box<dyn Error>> {
-    dbg!();
     let mut conn = Connection::new(
         BufReader::new(PipeClient::connect_ms(
             named_pipe_name(process::id(), PipeEnd::Tx),
@@ -61,25 +60,25 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
         )?),
         PipeClient::connect_ms(named_pipe_name(process::id(), PipeEnd::Rx), 500)?,
     );
-    dbg!();
     let startup_info = match dbg!(conn.read_message()?) {
         Message::StartupInfo(si) => si,
         _ => Default::default(),
     };
-    dbg!();
     unsafe {
         hooks::file::openfile_hook(&mut conn)?;
         hooks::file::createfilea_hook(&mut conn)?;
         hooks::file::createfilew_hook(&mut conn)?;
     }
-
-    dbg!();
+    if !startup_info.dont_hook_subprocesses {
+        unsafe {
+            hooks::process::createprocessa_hook(&mut conn)?;
+            hooks::process::createprocessw_hook(&mut conn)?;
+        }
+    }
 
     if startup_info.main_thread_suspended {
         resume_main_thread();
     }
-
-    dbg!();
 
     *CONN.lock().unwrap() = Some(conn);
     Ok(())

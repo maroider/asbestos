@@ -1,16 +1,18 @@
 use std::{
+    collections::HashMap,
     env,
     io::BufReader,
     os::windows::process::CommandExt,
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread,
+    time::Duration,
 };
 
 use structopt::StructOpt;
 
 use asbestos::shared::{
-    named_pipe::PipeOptions,
+    named_pipe::{ConnectingServer, PipeOptions, PipeServer},
     named_pipe_name,
     protocol::{Connection, Message, ProtocolError, StartupInfo},
     PipeEnd,
@@ -34,7 +36,13 @@ fn main() {
 }
 
 fn inject(opts: Inject) {
-    inject_impl(opts.pid, false);
+    inject_impl(
+        opts.pid,
+        StartupInfo {
+            main_thread_suspended: false,
+            dont_hook_subprocesses: opts.common.no_sub_hook,
+        },
+    );
 }
 
 fn wrap(opts: Wrap) {
@@ -51,7 +59,13 @@ fn wrap(opts: Wrap) {
         .spawn()
         .unwrap();
     let process_id = process.id();
-    inject_impl(process_id, true);
+    inject_impl(
+        process_id,
+        StartupInfo {
+            main_thread_suspended: true,
+            dont_hook_subprocesses: opts.common.no_sub_hook,
+        },
+    );
 }
 
 #[derive(StructOpt)]
@@ -70,6 +84,8 @@ enum Cmd {
 #[derive(StructOpt)]
 struct Inject {
     pid: u32,
+    #[structopt(flatten)]
+    common: CommonOpts,
 }
 
 /// Create a process with <command> and [args]  and the `CREATE_SUSPENDED` flag.
@@ -82,9 +98,116 @@ struct Wrap {
     /// Create a console for the wrapped process
     #[structopt(long)]
     create_console: bool,
+    #[structopt(flatten)]
+    common: CommonOpts,
 }
 
-fn inject_impl(pid: u32, target_suspended: bool) {
+#[derive(StructOpt)]
+struct CommonOpts {
+    /// Don't hook subprocesses created by the hooked process
+    #[structopt(long)]
+    no_sub_hook: bool,
+}
+
+fn inject_impl(pid: u32, startup_info: StartupInfo) {
+    let mut connections = HashMap::new();
+    if let Ok(connection) = inject_and_connect(pid, &startup_info) {
+        connections.insert(pid, connection);
+    }
+
+    loop {
+        let mut morgue = Vec::new();
+        let mut nursery = Vec::new();
+        for (pid, connection) in connections.iter_mut() {
+            match connection.read_message() {
+                Ok(msg) => match msg {
+                    Message::StartupInfo(_) => {}
+                    Message::LogMessage(log_message) => {
+                        eprintln!(
+                            "{}: [{}:{}] {}",
+                            pid,
+                            log_message
+                                .module_path
+                                .trim_start_matches("asbestos_payload::"),
+                            log_message.line,
+                            log_message.message
+                        );
+                    }
+                    Message::Initialized => eprintln!("{}: Payload initialized", pid),
+                    Message::InitializationFailed(err) => {
+                        eprintln!("{}: Payload initalization failed: {}", pid, err)
+                    }
+                    Message::ProcessSpawned(ps) => {
+                        eprintln!("{}: Spawned a new process: {}", pid, ps.pid);
+                        if let Ok(new_connection) = inject_and_connect(ps.pid, &startup_info) {
+                            nursery.push((ps.pid, new_connection));
+                        }
+                    }
+                    Message::ProcessDetach => {
+                        eprintln!("{}: Payload unloaded", pid);
+                        morgue.push(*pid);
+                    }
+                },
+                Err(err) => {
+                    if matches!(err, ProtocolError::Disconnected) {
+                        morgue.push(*pid);
+                    }
+                    eprintln!("{}: {:?} => {}", pid, err, err)
+                }
+            }
+        }
+        for dead_process in morgue {
+            connections.remove(&dead_process);
+        }
+        for (pid, connection) in nursery {
+            connections.insert(pid, connection);
+        }
+
+        if CTRL_C.load(Ordering::SeqCst) {
+            eprintln!("Ctrl-C");
+            break;
+        }
+
+        if connections.is_empty() {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+fn inject_and_connect(
+    pid: u32,
+    startup_info: &StartupInfo,
+) -> Result<Connection<impl std::io::Read, impl std::io::Write>, ()> {
+    let current_exe = env::current_exe().expect("asbestos could not locate its own executable");
+    let mut dll = current_exe.clone();
+    dll.set_file_name("asbestos_payload");
+    dll.set_extension("dll");
+
+    let (connecting_server_rx, connecting_server_tx) = create_connecting_pipe_server_pair(pid);
+
+    let injection_thread = thread::spawn(move || {
+        syringe::inject_dll(pid, &dll).unwrap();
+    });
+
+    let (pipe_rx, pipe_tx) = match wait_for_pipe_connection_with_timeout_ms(
+        pid,
+        connecting_server_rx,
+        connecting_server_tx,
+        3000,
+    ) {
+        Ok(ok) => ok,
+        Err(_) => return Err(()),
+    };
+    let mut connection = Connection::new(BufReader::new(pipe_rx), pipe_tx);
+    connection
+        .write_message(Message::StartupInfo(*startup_info))
+        .unwrap();
+    injection_thread.join().unwrap();
+
+    Ok(connection)
+}
+
+fn create_connecting_pipe_server_pair(pid: u32) -> (ConnectingServer, ConnectingServer) {
     let connecting_server_rx = PipeOptions::new(named_pipe_name(pid, PipeEnd::Rx))
         .single()
         .expect("Could not open named pipe");
@@ -93,83 +216,42 @@ fn inject_impl(pid: u32, target_suspended: bool) {
         .single()
         .expect("Could not open named pipe");
 
-    let current_exe = env::current_exe().expect("asbestos could not locate its own executable");
-    let mut dll = current_exe.clone();
-    dll.set_file_name("asbestos_payload");
-    dll.set_extension("dll");
+    (connecting_server_rx, connecting_server_tx)
+}
 
-    let injection_thread = thread::spawn(move || {
-        syringe::inject_dll(pid, &dll).unwrap();
-    });
-
+fn wait_for_pipe_connection_with_timeout_ms(
+    pid: u32,
+    connecting_server_rx: ConnectingServer,
+    connecting_server_tx: ConnectingServer,
+    timeout: u32,
+) -> Result<(PipeServer, PipeServer), ()> {
     eprintln!("Waiting for connection from {}", pid);
-    let pipe_rx = match connecting_server_rx.wait_ms(3000) {
+    let pipe_rx = match connecting_server_rx.wait_ms(timeout) {
         Err(err) => {
             eprintln!("Platform IO error: {}", err);
-            return;
+            return Err(());
         }
         Ok(ok) => match ok {
             Err(_) => {
-                eprintln!("{} did not connect within 3 seconds", pid);
-                return;
+                eprintln!("{} did not connect within {} ms", pid, timeout);
+                return Err(());
             }
             Ok(ok) => ok,
         },
     };
-    let pipe_tx = match connecting_server_tx.wait_ms(3000) {
+    let pipe_tx = match connecting_server_tx.wait_ms(timeout) {
         Err(err) => {
             eprintln!("Platform IO error: {}", err);
-            return;
+            return Err(());
         }
         Ok(ok) => match ok {
             Err(_) => {
-                eprintln!("{} did not connect within 3 seconds", pid);
-                return;
+                eprintln!("{} did not connect within {} ms", pid, timeout);
+                return Err(());
             }
             Ok(ok) => ok,
         },
     };
-    let mut connection = Connection::new(BufReader::new(pipe_rx), pipe_tx);
-    connection
-        .write_message(Message::StartupInfo(StartupInfo {
-            main_thread_suspended: target_suspended,
-        }))
-        .unwrap();
-    injection_thread.join().unwrap();
-    loop {
-        match connection.read_message() {
-            Ok(msg) => match msg {
-                Message::StartupInfo(_) => {}
-                Message::LogMessage(log_message) => {
-                    eprintln!(
-                        "{}: [{}:{}] {}",
-                        pid,
-                        log_message
-                            .module_path
-                            .trim_start_matches("asbestos_payload::"),
-                        log_message.line,
-                        log_message.message
-                    );
-                }
-                Message::Initialized => eprintln!("{}: Payload initialized", pid),
-                Message::InitializationFailed(err) => {
-                    eprintln!("{}: Payload initalization failed: {}", pid, err)
-                }
-                Message::ProcessDetach => {
-                    eprintln!("{}: Payload unloaded", pid);
-                    return;
-                }
-            },
-            Err(err) => {
-                if matches!(err, ProtocolError::Disconnected) {
-                    return;
-                }
-                eprintln!("{}: {:?} => {}", pid, err, err)
-            }
-        }
-        if CTRL_C.load(Ordering::SeqCst) {
-            eprintln!("Ctrl-C");
-            return;
-        }
-    }
+
+    Ok((pipe_rx, pipe_tx))
 }
