@@ -20,7 +20,9 @@ use asbestos_shared::{
     protocol::{Message, ProcessSpawned},
 };
 
-use crate::{decl_hook_init, get_conn};
+use crate::get_conn;
+
+use super::decl_hook_init;
 
 static_detour! {
     static CreateProcessAHook: unsafe extern "system" fn(

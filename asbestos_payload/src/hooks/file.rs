@@ -13,9 +13,11 @@ use winapi::{
 use asbestos_shared::{log_info, log_trace};
 
 use crate::{
-    decl_hook_init, get_conn,
+    get_conn,
     util::{cstrlen, cwstrlen},
 };
+
+use super::decl_hook_init;
 
 static_detour! {
     static OpenFileHook: unsafe extern "system" fn(

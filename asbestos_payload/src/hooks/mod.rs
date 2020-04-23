@@ -3,9 +3,7 @@ use std::{error::Error, fmt};
 pub mod file;
 pub mod process;
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! decl_hook_init {
+macro_rules! _decl_hook_init {
     ($hook:ident, $hooked_fn_type:ty, $hooked_fn:ident, $init_fn:ident, $module:literal, $detour_fn:ident) => {
         pub unsafe fn $init_fn<R: std::io::Read, W: std::io::Write>(
             conn: &mut crate::Connection<R, W>,
@@ -34,6 +32,7 @@ macro_rules! decl_hook_init {
         }
     };
 }
+pub(crate) use _decl_hook_init as decl_hook_init;
 
 #[derive(Debug)]
 enum HookError {
