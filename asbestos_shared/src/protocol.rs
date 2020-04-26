@@ -117,6 +117,7 @@ wrapper_enum! {
 pub struct StartupInfo {
     pub main_thread_suspended: bool,
     pub dont_hook_subprocesses: bool,
+    pub show_console: bool,
     pub mappings: Mappings,
 }
 

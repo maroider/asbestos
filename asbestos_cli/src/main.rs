@@ -23,7 +23,7 @@ use asbestos::shared::{
 static CTRL_C: AtomicBool = AtomicBool::new(false);
 
 const CREATE_SUSPENDED: u32 = 0x00000004;
-const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+const DETACHED_PROCESS: u32 = 0x00000008;
 
 fn main() {
     let opts = dbg!(Opts::from_args());
@@ -47,6 +47,7 @@ fn inject(opts: Inject) {
         StartupInfo {
             main_thread_suspended: false,
             dont_hook_subprocesses: opts.common.no_sub_hook,
+            show_console: true,
             mappings,
         },
     );
@@ -59,14 +60,7 @@ fn wrap(opts: Wrap) {
     };
     let process = Command::new(&opts.command)
         .args(opts.args)
-        .creation_flags(
-            CREATE_SUSPENDED
-                | if opts.create_console {
-                    CREATE_NEW_CONSOLE
-                } else {
-                    0
-                },
-        )
+        .creation_flags(CREATE_SUSPENDED | DETACHED_PROCESS)
         .spawn()
         .unwrap();
     let process_id = process.id();
@@ -75,6 +69,7 @@ fn wrap(opts: Wrap) {
         StartupInfo {
             main_thread_suspended: true,
             dont_hook_subprocesses: opts.common.no_sub_hook,
+            show_console: opts.show_console,
             mappings,
         },
     );
@@ -121,9 +116,9 @@ struct Inject {
 struct Wrap {
     command: String,
     args: Vec<String>,
-    /// Create a console for the wrapped process
+    /// Immediately show the console of the wrapped process
     #[structopt(long)]
-    create_console: bool,
+    show_console: bool,
     #[structopt(flatten)]
     common: CommonOpts,
     /// Ignore all arguments beyond this flag

@@ -1,17 +1,26 @@
 use std::{
+    env,
     error::Error,
     io::BufReader,
-    process,
-    sync::{Mutex, MutexGuard, TryLockError},
+    panic, process,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, MutexGuard, TryLockError,
+    },
+    thread,
+    time::Duration,
 };
 
 use lazy_static::lazy_static;
 use winapi::{
     shared::minwindef::{BOOL, DWORD, FALSE, HINSTANCE, LPVOID, TRUE},
     um::{
+        consoleapi::AllocConsole,
         handleapi::CloseHandle,
         processthreadsapi::{GetCurrentThreadId, OpenThread, ResumeThread},
+        wincon::GetConsoleWindow,
         winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, THREAD_SUSPEND_RESUME},
+        winuser::{ShowWindow, SW_HIDE, SW_SHOW},
     },
 };
 
@@ -48,6 +57,8 @@ pub unsafe extern "system" fn DllMain(
     _reserved: LPVOID,
 ) -> BOOL {
     if call_reason == DLL_PROCESS_ATTACH {
+        install_panic_hook();
+
         match init_payload() {
             Ok(_) => {
                 let mut conn = CONN.lock().unwrap();
@@ -102,6 +113,18 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
         _ => Default::default(),
     };
 
+    unsafe { AllocConsole() };
+    let handle = unsafe { GetConsoleWindow() };
+    if !handle.is_null() {
+        if startup_info.show_console {
+            unsafe { ShowWindow(handle, SW_SHOW) };
+        } else {
+            unsafe { ShowWindow(handle, SW_HIDE) };
+        }
+    }
+
+    println!("some stuff");
+
     unsafe {
         hooks::file::openfile_hook(&mut conn)?;
         hooks::file::createfilea_hook(&mut conn)?;
@@ -138,4 +161,48 @@ fn resume_main_thread() {
             unsafe { CloseHandle(handle) };
         }
     }
+}
+
+fn install_panic_hook() {
+    let default_panic_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        static FIRST_PANIC: AtomicBool = AtomicBool::new(true);
+        if FIRST_PANIC.swap(false, Ordering::SeqCst) {
+            env::set_var("RUST_BACKTRACE", "full");
+            if let Ok(_) = ensure_console_window() {
+                default_panic_hook(panic_info);
+                loop {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        } else {
+            default_panic_hook(panic_info);
+            loop {
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }));
+}
+
+fn ensure_console_window() -> Result<(), ()> {
+    let handle = {
+        let handle = unsafe { GetConsoleWindow() };
+        if handle.is_null() {
+            if unsafe { AllocConsole() } == 0 {
+                return Err(());
+            } else {
+                let handle = unsafe { GetConsoleWindow() };
+                if handle.is_null() {
+                    return Err(());
+                }
+                handle
+            }
+        } else {
+            handle
+        }
+    };
+
+    unsafe { ShowWindow(handle, SW_SHOW) };
+
+    Ok(())
 }
