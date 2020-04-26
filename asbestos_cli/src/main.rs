@@ -1,8 +1,10 @@
 use std::{
     collections::HashMap,
     env,
+    fs::File,
     io::BufReader,
     os::windows::process::CommandExt,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread,
@@ -14,7 +16,7 @@ use structopt::StructOpt;
 use asbestos::shared::{
     named_pipe::{ConnectingServer, PipeOptions, PipeServer},
     named_pipe_name,
-    protocol::{Connection, Message, ProtocolError, StartupInfo},
+    protocol::{Connection, Mappings, Message, ProtocolError, StartupInfo},
     PipeEnd,
 };
 
@@ -24,7 +26,7 @@ const CREATE_SUSPENDED: u32 = 0x00000004;
 const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
 fn main() {
-    let opts = Opts::from_args();
+    let opts = dbg!(Opts::from_args());
 
     ctrlc::set_handler(move || CTRL_C.store(true, Ordering::SeqCst))
         .expect("Error setting Ctrl-C handler");
@@ -36,16 +38,25 @@ fn main() {
 }
 
 fn inject(opts: Inject) {
+    let mappings = match load_mappings(&opts.common.mappings) {
+        Ok(ok) => ok,
+        Err(_) => loop {},
+    };
     inject_impl(
         opts.pid,
         StartupInfo {
             main_thread_suspended: false,
             dont_hook_subprocesses: opts.common.no_sub_hook,
+            mappings,
         },
     );
 }
 
 fn wrap(opts: Wrap) {
+    let mappings = match load_mappings(&opts.common.mappings) {
+        Ok(ok) => ok,
+        Err(_) => loop {},
+    };
     let process = Command::new(&opts.command)
         .args(opts.args)
         .creation_flags(
@@ -64,24 +75,39 @@ fn wrap(opts: Wrap) {
         StartupInfo {
             main_thread_suspended: true,
             dont_hook_subprocesses: opts.common.no_sub_hook,
+            mappings,
         },
     );
 }
 
-#[derive(StructOpt)]
+fn load_mappings(path: &Path) -> Result<Mappings, ()> {
+    let file = match File::open(path) {
+        Ok(ok) => ok,
+        Err(err) => {
+            eprintln!("Could not open {}: {}", path.display(), err);
+            return Err(());
+        }
+    };
+    let reader = BufReader::new(file);
+    dbg!(serde_json::from_reader(reader).map_err(|err| {
+        eprintln!("Could not deserialize mappings file: {}", err);
+    }))
+}
+
+#[derive(Debug, StructOpt)]
 struct Opts {
     #[structopt(subcommand)]
     cmd: Cmd,
 }
 
-#[derive(StructOpt)]
+#[derive(Debug, StructOpt)]
 enum Cmd {
     Inject(Inject),
     Wrap(Wrap),
 }
 
 /// Inject the payload into the specified process.
-#[derive(StructOpt)]
+#[derive(Debug, StructOpt)]
 struct Inject {
     pid: u32,
     #[structopt(flatten)]
@@ -91,7 +117,7 @@ struct Inject {
 /// Create a process with <command> and [args]  and the `CREATE_SUSPENDED` flag.
 ///
 /// The process will be allowed to begin execution once the payload has been initalized.
-#[derive(StructOpt)]
+#[derive(Debug, StructOpt)]
 struct Wrap {
     command: String,
     args: Vec<String>,
@@ -100,13 +126,19 @@ struct Wrap {
     create_console: bool,
     #[structopt(flatten)]
     common: CommonOpts,
+    /// Ignore all arguments beyond this flag
+    #[allow(dead_code)]
+    #[structopt(long)]
+    asbestos_cli_ignore: Vec<String>,
 }
 
-#[derive(StructOpt)]
+#[derive(Debug, StructOpt)]
 struct CommonOpts {
     /// Don't hook subprocesses created by the hooked process
     #[structopt(long)]
     no_sub_hook: bool,
+    #[structopt(long = "with-mappings")]
+    mappings: PathBuf,
 }
 
 fn inject_impl(pid: u32, startup_info: StartupInfo) {
@@ -200,7 +232,7 @@ fn inject_and_connect(
     };
     let mut connection = Connection::new(BufReader::new(pipe_rx), pipe_tx);
     connection
-        .write_message(Message::StartupInfo(*startup_info))
+        .write_message(Message::StartupInfo(startup_info.clone()))
         .unwrap();
     injection_thread.join().unwrap();
 

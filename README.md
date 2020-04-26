@@ -1,5 +1,5 @@
 # asbestos
-asbestos is a tool for intercepting program I/O calls on Windows.
+asbestos is a tool for interepting I/O from games. asbestos currently only works on Windows.
 
 # How?
 

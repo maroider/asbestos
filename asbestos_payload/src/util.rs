@@ -21,6 +21,7 @@ pub fn get_module_symbol_address(module: &str, symbol: &str) -> Option<usize> {
     }
 }
 
+#[allow(dead_code)]
 pub unsafe fn cwstrlen(pcwstr: LPCWSTR) -> usize {
     let mut len = 0;
     loop {

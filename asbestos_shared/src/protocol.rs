@@ -3,6 +3,7 @@ use std::{
     error::Error,
     fmt,
     io::{self, Read, Write},
+    path::PathBuf,
 };
 
 use bincode::{deserialize, deserialize_from, serialize, serialize_into};
@@ -112,10 +113,39 @@ wrapper_enum! {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct StartupInfo {
     pub main_thread_suspended: bool,
     pub dont_hook_subprocesses: bool,
+    pub mappings: Mappings,
+}
+
+// TODO: Validate mappings. eg. `from` should always be a directory unless `kind` is `Redirect`, in which case `from`
+//       and `to` should point to the same kind of file system resource.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Mappings {
+    pub mappings: Vec<Mapping>,
+}
+
+impl Mappings {
+    pub fn iter(&self) -> impl Iterator<Item = &Mapping> {
+        self.mappings.iter()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Mapping {
+    pub kind: MappingKind,
+    pub from: PathBuf,
+    pub to: PathBuf,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum MappingKind {
+    /// Redirect access to a file or folder to another file or folder.
+    Redirect,
+    /// Virtually add a file or folder to a folder.
+    Mount,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

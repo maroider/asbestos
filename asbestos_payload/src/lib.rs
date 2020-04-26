@@ -18,12 +18,13 @@ use winapi::{
 use asbestos_shared::{
     named_pipe::PipeClient,
     named_pipe_name,
-    protocol::{Connection, Message},
+    protocol::{Connection, Mappings, Message},
     PipeEnd,
 };
 
 mod hooks;
 mod util;
+pub mod vfs;
 
 #[macro_export]
 macro_rules! c_str {
@@ -36,67 +37,7 @@ type PipeConnection = Connection<BufReader<PipeClient>, PipeClient>;
 
 lazy_static! {
     static ref CONN: Mutex<Option<PipeConnection>> = Mutex::new(None);
-}
-
-fn get_conn() -> MutexGuard<'static, Option<PipeConnection>> {
-    loop {
-        let res = CONN.try_lock();
-        match res {
-            Ok(pipe) => return pipe,
-            Err(err) => {
-                if let TryLockError::Poisoned(_) = err {
-                    unreachable!("This should never happen. Ever.")
-                }
-            }
-        }
-    }
-}
-
-fn init_payload() -> Result<(), Box<dyn Error>> {
-    let mut conn = Connection::new(
-        BufReader::new(PipeClient::connect_ms(
-            named_pipe_name(process::id(), PipeEnd::Tx),
-            500,
-        )?),
-        PipeClient::connect_ms(named_pipe_name(process::id(), PipeEnd::Rx), 500)?,
-    );
-    let startup_info = match dbg!(conn.read_message()?) {
-        Message::StartupInfo(si) => si,
-        _ => Default::default(),
-    };
-    unsafe {
-        hooks::file::openfile_hook(&mut conn)?;
-        hooks::file::createfilea_hook(&mut conn)?;
-        hooks::file::createfilew_hook(&mut conn)?;
-    }
-    if !startup_info.dont_hook_subprocesses {
-        unsafe {
-            hooks::process::createprocessa_hook(&mut conn)?;
-            hooks::process::createprocessw_hook(&mut conn)?;
-        }
-    }
-
-    if startup_info.main_thread_suspended {
-        resume_main_thread();
-    }
-
-    *CONN.lock().unwrap() = Some(conn);
-    Ok(())
-}
-
-fn resume_main_thread() {
-    let pid = process::id();
-    let current_thread = unsafe { GetCurrentThreadId() };
-    for entry in tlhelp32::Snapshot::new_thread().unwrap() {
-        if entry.owner_process_id == pid && entry.thread_id != current_thread {
-            let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.thread_id) };
-            if handle.is_null() {
-                return;
-            }
-            unsafe { ResumeThread(handle) };
-            unsafe { CloseHandle(handle) };
-        }
-    }
+    static ref MAPPINGS: Mutex<Mappings> = Mutex::new(Mappings::default());
 }
 
 #[no_mangle]
@@ -131,5 +72,70 @@ pub unsafe extern "system" fn DllMain(
         f().is_ok() as BOOL
     } else {
         TRUE
+    }
+}
+
+fn get_conn() -> MutexGuard<'static, Option<PipeConnection>> {
+    loop {
+        let res = CONN.try_lock();
+        match res {
+            Ok(pipe) => return pipe,
+            Err(err) => {
+                if let TryLockError::Poisoned(_) = err {
+                    unreachable!("This should never happen. Ever.")
+                }
+            }
+        }
+    }
+}
+
+fn init_payload() -> Result<(), Box<dyn Error>> {
+    let mut conn = Connection::new(
+        BufReader::new(PipeClient::connect_ms(
+            named_pipe_name(process::id(), PipeEnd::Tx),
+            500,
+        )?),
+        PipeClient::connect_ms(named_pipe_name(process::id(), PipeEnd::Rx), 500)?,
+    );
+    let startup_info = match dbg!(conn.read_message()?) {
+        Message::StartupInfo(si) => si,
+        _ => Default::default(),
+    };
+
+    unsafe {
+        hooks::file::openfile_hook(&mut conn)?;
+        hooks::file::createfilea_hook(&mut conn)?;
+        hooks::file::createfilew_hook(&mut conn)?;
+    }
+
+    if !startup_info.dont_hook_subprocesses {
+        unsafe {
+            hooks::process::createprocessa_hook(&mut conn)?;
+            hooks::process::createprocessw_hook(&mut conn)?;
+        }
+    }
+
+    *MAPPINGS.lock().unwrap() = startup_info.mappings;
+    *CONN.lock().unwrap() = Some(conn);
+
+    if startup_info.main_thread_suspended {
+        resume_main_thread();
+    }
+
+    Ok(())
+}
+
+fn resume_main_thread() {
+    let pid = process::id();
+    let current_thread = unsafe { GetCurrentThreadId() };
+    for entry in tlhelp32::Snapshot::new_thread().unwrap() {
+        if entry.owner_process_id == pid && entry.thread_id != current_thread {
+            let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.thread_id) };
+            if handle.is_null() {
+                return;
+            }
+            unsafe { ResumeThread(handle) };
+            unsafe { CloseHandle(handle) };
+        }
     }
 }
