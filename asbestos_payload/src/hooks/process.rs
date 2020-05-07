@@ -130,6 +130,7 @@ decl_detour!(
         conn.write_message(Message::ProcessSpawned(ProcessSpawned {
             // TODO: Figure out what to do if `lpProcessInformation` is null.
             pid: unsafe { *lpProcessInformation }.dwProcessId,
+            tid: unsafe { *lpProcessInformation }.dwThreadId,
         }))
         .ok();
 

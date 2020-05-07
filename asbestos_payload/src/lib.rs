@@ -139,26 +139,34 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
     *CONN.lock().unwrap() = Some(conn);
 
     if startup_info.main_thread_suspended {
-        resume_main_thread();
+        resume_main_thread(startup_info.tid);
     }
 
     Ok(())
 }
 
-fn resume_main_thread() {
+fn resume_main_thread(tid: u32) {
+    let tid = {
+        if tid == 0 {
     let pid = process::id();
     let current_thread = unsafe { GetCurrentThreadId() };
-    for entry in tlhelp32::Snapshot::new_thread().unwrap() {
-        if entry.owner_process_id == pid && entry.thread_id != current_thread {
-            let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.thread_id) };
+            tlhelp32::Snapshot::new_thread()
+                .unwrap()
+                .find(|entry| entry.owner_process_id == pid && entry.thread_id != current_thread)
+                .map(|entry| entry.thread_id)
+                .expect("Could not locate another thread")
+        } else {
+            tid
+        }
+    };
+
+    let handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, FALSE, tid) };
             if handle.is_null() {
-                return;
+        panic!("Could not open handle to main thread");
             }
             unsafe { ResumeThread(handle) };
             unsafe { CloseHandle(handle) };
         }
-    }
-}
 
 fn install_panic_hook() {
     let default_panic_hook = panic::take_hook();

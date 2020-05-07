@@ -44,12 +44,12 @@ fn inject(opts: Inject) {
     };
     inject_impl(
         opts.pid,
-        StartupInfo {
+        InjectOpts {
             main_thread_suspended: false,
             dont_hook_subprocesses: opts.common.no_sub_hook,
             show_console: true,
-            mappings,
         },
+        mappings,
     );
 }
 
@@ -58,6 +58,7 @@ fn wrap(opts: Wrap) {
         Ok(ok) => ok,
         Err(_) => loop {},
     };
+    // TODO: Get hold of the spawned process's main thread's id here.
     let process = Command::new(&opts.command)
         .args(opts.args)
         .creation_flags(CREATE_SUSPENDED | DETACHED_PROCESS)
@@ -66,12 +67,12 @@ fn wrap(opts: Wrap) {
     let process_id = process.id();
     inject_impl(
         process_id,
-        StartupInfo {
+        InjectOpts {
             main_thread_suspended: true,
             dont_hook_subprocesses: opts.common.no_sub_hook,
             show_console: opts.show_console,
-            mappings,
         },
+        mappings,
     );
 }
 
@@ -136,9 +137,9 @@ struct CommonOpts {
     mappings: PathBuf,
 }
 
-fn inject_impl(pid: u32, startup_info: StartupInfo) {
+fn inject_impl(pid: u32, inject_opts: InjectOpts, mappings: Mappings) {
     let mut connections = HashMap::new();
-    if let Ok(connection) = inject_and_connect(pid, &startup_info) {
+    if let Ok(connection) = inject_and_connect(pid, 0, &inject_opts, &mappings) {
         connections.insert(pid, connection);
     }
 
@@ -172,7 +173,9 @@ fn inject_impl(pid: u32, startup_info: StartupInfo) {
                     }
                     Message::ProcessSpawned(ps) => {
                         eprintln!("{}: Spawned a new process: {}", pid, ps.pid);
-                        if let Ok(new_connection) = inject_and_connect(ps.pid, &startup_info) {
+                        if let Ok(new_connection) =
+                            inject_and_connect(ps.pid, ps.tid, &inject_opts, &mappings)
+                        {
                             nursery.push((ps.pid, new_connection));
                         }
                     }
@@ -209,7 +212,9 @@ fn inject_impl(pid: u32, startup_info: StartupInfo) {
 
 fn inject_and_connect(
     pid: u32,
-    startup_info: &StartupInfo,
+    tid: u32,
+    inject_opts: &InjectOpts,
+    mappings: &Mappings,
 ) -> Result<Connection<impl std::io::Read, impl std::io::Write>, ()> {
     let current_exe = env::current_exe().expect("asbestos could not locate its own executable");
     let mut dll = current_exe.clone();
@@ -233,11 +238,23 @@ fn inject_and_connect(
     };
     let mut connection = Connection::new(BufReader::new(pipe_rx), pipe_tx);
     connection
-        .write_message(Message::StartupInfo(startup_info.clone()))
+        .write_message(Message::StartupInfo(StartupInfo {
+            main_thread_suspended: inject_opts.main_thread_suspended,
+            dont_hook_subprocesses: inject_opts.dont_hook_subprocesses,
+            show_console: inject_opts.show_console,
+            mappings: mappings.clone(),
+            tid,
+        }))
         .unwrap();
     injection_thread.join().unwrap();
 
     Ok(connection)
+}
+
+struct InjectOpts {
+    main_thread_suspended: bool,
+    dont_hook_subprocesses: bool,
+    show_console: bool,
 }
 
 fn create_connecting_pipe_server_pair(pid: u32) -> (ConnectingServer, ConnectingServer) {

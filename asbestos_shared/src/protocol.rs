@@ -119,6 +119,7 @@ pub struct StartupInfo {
     pub dont_hook_subprocesses: bool,
     pub show_console: bool,
     pub mappings: Mappings,
+    pub tid: u32,
 }
 
 // TODO: Validate mappings. eg. `from` should always be a directory unless `kind` is `Redirect`, in which case `from`
@@ -184,4 +185,5 @@ pub enum LogLevel {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProcessSpawned {
     pub pid: u32,
+    pub tid: u32,
 }
