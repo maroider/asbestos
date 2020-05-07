@@ -131,8 +131,7 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
 
     if !startup_info.dont_hook_subprocesses {
         unsafe {
-            hooks::process::createprocessa::hook(&mut conn)?;
-            hooks::process::createprocessw::hook(&mut conn)?;
+            hooks::process::createprocessinternalw::hook(&mut conn)?;
         }
     }
 
