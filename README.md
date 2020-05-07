@@ -12,3 +12,7 @@ Currently, asbestos is able to inject its payload into a target process and log 
 # Linux? Mac?
 
 I will implement support for platforms which I use regularly.
+
+# Why nightly?
+
+`detour` depends on some nightly features (`const_fn`, `unboxed_closures`, `abi_thiscall`) which makes its interface a lot nicer to use.

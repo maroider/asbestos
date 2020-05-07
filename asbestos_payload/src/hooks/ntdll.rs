@@ -75,6 +75,9 @@ decl_detour!(
                                 .ok();
 
                                 let redirected_object_name: &OsStr = redirected_object_name.as_ref().as_ref();
+                                // Dropping `redirected_object_name` after it's been passed to `NtCreateFile` should be
+                                // safe since it's not supposed to modify it in any way. If it does, then this may
+                                // introduce a double-free/use-after-free.
                                 let mut redirected_object_name: Vec<_> = redirected_object_name.encode_wide().collect();
                                 let mut new_object_attributes = OBJECT_ATTRIBUTES {
                                     ObjectName: &mut UNICODE_STRING {
