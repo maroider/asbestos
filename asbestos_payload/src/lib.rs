@@ -125,8 +125,8 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
     }
 
     unsafe {
-        hooks::ntdll::ntcreatefile::hook(&mut conn)?;
-        hooks::ntdll::ntqueryattributesfile::hook(&mut conn)?;
+        hooks::file::ntcreatefile::hook(&mut conn)?;
+        hooks::file::ntqueryattributesfile::hook(&mut conn)?;
     }
 
     if !startup_info.dont_hook_subprocesses {
