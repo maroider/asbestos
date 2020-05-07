@@ -123,18 +123,16 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("some stuff");
-
     unsafe {
-        hooks::file::openfile_hook(&mut conn)?;
-        hooks::file::createfilea_hook(&mut conn)?;
-        hooks::file::createfilew_hook(&mut conn)?;
+        hooks::file::openfile::hook(&mut conn)?;
+        hooks::file::createfilea::hook(&mut conn)?;
+        hooks::file::createfilew::hook(&mut conn)?;
     }
 
     if !startup_info.dont_hook_subprocesses {
         unsafe {
-            hooks::process::createprocessa_hook(&mut conn)?;
-            hooks::process::createprocessw_hook(&mut conn)?;
+            hooks::process::createprocessa::hook(&mut conn)?;
+            hooks::process::createprocessw::hook(&mut conn)?;
         }
     }
 

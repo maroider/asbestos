@@ -80,7 +80,6 @@ use std::{
     ptr, slice,
 };
 
-use detour::static_detour;
 use widestring::U16CStr;
 use winapi::{
     shared::minwindef::{DWORD, HFILE, UINT},
@@ -91,7 +90,7 @@ use winapi::{
     },
 };
 
-use asbestos_shared::{log_info, log_trace, log_warn};
+use asbestos_shared::log_warn;
 
 use crate::{get_conn, util::cstrlen, vfs};
 
@@ -126,7 +125,7 @@ decl_detour!(
             file_name.unwrap_or_else(|| "[NULL POINTER]".into())
         )
         .ok();
-        unsafe { OpenFileHook.call(lpFileName, lpReOpenBuff, uStyle) }
+        unsafe { Hook.call(lpFileName, lpReOpenBuff, uStyle) }
     }
 );
 
@@ -164,7 +163,7 @@ decl_detour!(
         )
         .ok();
         unsafe {
-            CreateFileAHook.call(
+            Hook.call(
                 lpFileName,
                 dwDesiredAccess,
                 dwShareMode,
@@ -237,7 +236,7 @@ decl_detour!(
                 }
 
                 unsafe {
-                    CreateFileWHook.call(
+                    Hook.call(
                         mapped_file_name.as_ptr(),
                         dwDesiredAccess,
                         dwShareMode,
@@ -256,7 +255,7 @@ decl_detour!(
                 .ok();
 
                 unsafe {
-                    CreateFileWHook.call(
+                    Hook.call(
                         lpFileName,
                         dwDesiredAccess,
                         dwShareMode,
@@ -271,7 +270,7 @@ decl_detour!(
             log_info!(conn, "CreateFileW(lpFileName: [NULL POINTER])").ok();
 
             unsafe {
-                CreateFileWHook.call(
+                Hook.call(
                     lpFileName,
                     dwDesiredAccess,
                     dwShareMode,

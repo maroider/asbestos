@@ -3,7 +3,6 @@
 //! `CreateProcessAsUser`, `CreateProcessWithLogon` and `CreateProcessWithToken` are currently not
 //! hooked since they're probably not used much in games.
 
-use detour::static_detour;
 use winapi::{
     shared::minwindef::{BOOL, DWORD, LPVOID},
     um::{
@@ -16,7 +15,7 @@ use winapi::{
 };
 
 use asbestos_shared::{
-    log_error, log_info, log_trace,
+    log_error,
     protocol::{Message, ProcessSpawned},
 };
 
@@ -43,7 +42,7 @@ decl_detour!(
         let conn = conn.as_mut().unwrap();
 
         let res = unsafe {
-            CreateProcessAHook.call(
+            Hook.call(
                 lpApplicationName,
                 lpCommandLine,
                 lpProcessAttributes,
@@ -94,7 +93,7 @@ decl_detour!(
         let conn = conn.as_mut().unwrap();
 
         let res = unsafe {
-            CreateProcessWHook.call(
+            Hook.call(
                 lpApplicationName,
                 lpCommandLine,
                 lpProcessAttributes,

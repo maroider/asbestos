@@ -13,7 +13,6 @@ crate-type = ["lib", "cdylib"]
 asbestos_shared = { path = "../asbestos_shared" }
 detour = "0.7.1"
 lazy_static = "1.4.0"
-paste = "0.1.10"
 tlhelp32 = "1.0.3"
 widestring = "0.4.0"
 winapi = { version = "0.3.8", features = ["libloaderapi", "winnt", "winuser"] }
