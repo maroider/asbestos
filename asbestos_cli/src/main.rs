@@ -150,15 +150,21 @@ fn inject_impl(pid: u32, startup_info: StartupInfo) {
                 Ok(msg) => match msg {
                     Message::StartupInfo(_) => {}
                     Message::LogMessage(log_message) => {
-                        eprintln!(
-                            "{}: [{}:{}] {}",
+                        let prefix = format!(
+                            "{}: [{}:{}] ",
                             pid,
                             log_message
                                 .module_path
                                 .trim_start_matches("asbestos_payload::"),
                             log_message.line,
-                            log_message.message
                         );
+                        for (n, line) in log_message.message.lines().enumerate() {
+                            if n == 0 {
+                                eprintln!("{}{}", prefix, line);
+                            } else {
+                                eprintln!("{:width$}{}", " ", line, width = prefix.len());
+                            }
+                        }
                     }
                     Message::Initialized => eprintln!("{}: Payload initialized", pid),
                     Message::InitializationFailed(err) => {
