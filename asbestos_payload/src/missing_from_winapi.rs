@@ -2,7 +2,7 @@
 
 use winapi::shared::{
     basetsd::ULONG_PTR,
-    ntdef::{NTSTATUS, PVOID},
+    ntdef::{LARGE_INTEGER, NTSTATUS, PVOID, ULONG},
 };
 
 // This macro was shamelessly lifted from `winapi` since it isn't exported.
@@ -78,3 +78,13 @@ winapi::STRUCT! {struct IO_STATUS_BLOCK {
 }}
 
 pub type PIO_STATUS_BLOCK = *mut IO_STATUS_BLOCK;
+
+winapi::STRUCT! {struct FILE_BASIC_INFORMATION {
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    FileAttributes: ULONG,
+}}
+
+pub type PFILE_BASIC_INFORMATION = *mut FILE_BASIC_INFORMATION;
