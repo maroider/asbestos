@@ -218,7 +218,7 @@ decl_detour!(
                 }
                 file_name
             };
-            let mapped_file_name = vfs::resolve_path(file_name).unwrap();
+            let mapped_file_name = vfs::resolve_path(Some(conn), file_name).unwrap();
             if file_name != mapped_file_name {
                 let mapped_file_name: &Path = mapped_file_name.as_ref();
 

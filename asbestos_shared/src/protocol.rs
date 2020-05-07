@@ -137,8 +137,22 @@ impl Mappings {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Mapping {
     pub kind: MappingKind,
-    pub from: PathBuf,
-    pub to: PathBuf,
+    pub from: MappingFrom,
+    pub to: MappingTo,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MappingFrom {
+    File(PathBuf),
+    Folder(PathBuf),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MappingTo {
+    File(PathBuf),
+    Folder(PathBuf),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
