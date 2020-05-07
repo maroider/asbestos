@@ -35,6 +35,7 @@ pub unsafe fn cwstrlen(pcwstr: LPCWSTR) -> usize {
     len
 }
 
+#[allow(dead_code)]
 pub unsafe fn cstrlen(pcstr: LPCSTR) -> usize {
     let mut len = 0;
     loop {

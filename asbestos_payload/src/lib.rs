@@ -32,6 +32,7 @@ use asbestos_shared::{
 };
 
 mod hooks;
+mod missing_from_winapi;
 mod util;
 pub mod vfs;
 
@@ -124,9 +125,7 @@ fn init_payload() -> Result<(), Box<dyn Error>> {
     }
 
     unsafe {
-        hooks::file::openfile::hook(&mut conn)?;
-        hooks::file::createfilea::hook(&mut conn)?;
-        hooks::file::createfilew::hook(&mut conn)?;
+        hooks::ntdll::ntcreatefile::hook(&mut conn)?;
     }
 
     if !startup_info.dont_hook_subprocesses {

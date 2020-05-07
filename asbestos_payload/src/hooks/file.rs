@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Hooks for functions that deal with the file system.
 
 // The following is a list of functions that may need to be hooked:

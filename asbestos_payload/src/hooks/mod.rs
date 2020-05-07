@@ -1,6 +1,7 @@
 use std::{error::Error, fmt};
 
 pub mod file;
+pub mod ntdll;
 pub mod process;
 
 macro_rules! _decl_detour {
@@ -13,11 +14,11 @@ macro_rules! _decl_detour {
 
             use asbestos_shared::{log_info, log_trace};
 
-                    static_detour! {
-                        static Hook: unsafe extern "system" fn($($arg_type),*) -> $ret;
+                static_detour! {
+                    static Hook: unsafe extern "system" fn($($arg_type),*) -> $ret;
                 }
 
-                    pub unsafe fn hook<R: std::io::Read, W: std::io::Write>(
+                pub unsafe fn hook<R: std::io::Read, W: std::io::Write>(
                     conn: &mut crate::Connection<R, W>,
                 ) -> Result<(), Box<dyn std::error::Error>> {
                     log_trace!(
@@ -25,7 +26,7 @@ macro_rules! _decl_detour {
                     concat!("Locating ", stringify!($name), "'s address")
                 )?;
                 let address = crate::util::get_module_symbol_address($module, stringify!($name))
-                    .ok_or(super::super::HookError::SymbolAddressNotFound {
+                .ok_or(super::super::HookError::SymbolAddressNotFound {
                     module: $module,
                     symbol: stringify!($name),
                 })?;
@@ -35,7 +36,7 @@ macro_rules! _decl_detour {
                     conn,
                     concat!("Initalizing ", stringify!($name), "'s hook")
                 )?;
-                    Hook.initialize(target, detour)?.enable()?;
+                Hook.initialize(target, detour)?.enable()?;
                 log_info!(
                     conn,
                     concat!(stringify!($name), "'s hook has been initialized")
@@ -44,7 +45,7 @@ macro_rules! _decl_detour {
             }
 
             #[allow(non_snake_case)]
-                pub fn detour($($arg_name: $arg_type),*) -> $ret {
+            pub fn detour($($arg_name: $arg_type),*) -> $ret {
                 $detour_body
             }
         }
