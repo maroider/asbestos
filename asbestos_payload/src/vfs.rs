@@ -1,4 +1,11 @@
-use std::{borrow::Cow, fmt, fmt::Write, io, path::Path};
+use std::{
+    borrow::Cow,
+    ffi::OsString,
+    fmt,
+    fmt::Write,
+    io,
+    path::{Component, Path, PathBuf},
+};
 
 use asbestos_shared::{
     log_trace,
@@ -30,7 +37,34 @@ pub fn _resolve_path<'a>(
     path: &'a Path,
     mappings: &Mappings,
 ) -> Result<Cow<'a, Path>, PathResolveError> {
-    let mut current_path = Cow::Borrowed(path);
+    let mut is_nt_wierd = false;
+    let mut is_simplified = false;
+    let simplified_path = {
+        let mut components = path.components();
+        let nt_wierd_components = [Component::RootDir, Component::Normal("??".as_ref())];
+        let mut nt_wierd_components = nt_wierd_components.iter().copied();
+        let nt_wierd_stripped = {
+            if components.next() == nt_wierd_components.next() {
+                if components.next() == nt_wierd_components.next() {
+                    components.as_path()
+                } else {
+                    path
+                }
+            } else {
+                path
+            }
+        };
+        if nt_wierd_stripped != path {
+            is_nt_wierd = true;
+            nt_wierd_stripped
+        } else {
+            let post_dunce = dunce::simplified(nt_wierd_stripped);
+            is_simplified = post_dunce != path;
+            post_dunce
+        }
+    };
+
+    let mut current_path = Cow::Borrowed(simplified_path);
 
     let mut trace = String::new();
 
@@ -52,7 +86,7 @@ pub fn _resolve_path<'a>(
                     }
                 }
                 (MappingFrom::File(from), MappingTo::Folder(to)) => {
-                    if &current_path == from {
+                    if current_path == *from {
                         if let Some(name) = current_path.file_name() {
                             current_path = to.join(name).into();
                         } else {
@@ -106,7 +140,17 @@ pub fn _resolve_path<'a>(
         log_trace!(conn, "{}", trace).ok();
     }
 
-    Ok(current_path)
+    if is_nt_wierd {
+        let mut out = OsString::from(r"\??\");
+        out.push(current_path.as_ref());
+        Ok(PathBuf::from(out).into())
+    } else if is_simplified {
+        let mut out = OsString::from(r"\\?\");
+        out.push(current_path.as_ref());
+        Ok(PathBuf::from(out).into())
+    } else {
+        Ok(current_path)
+    }
 }
 
 #[derive(Debug)]

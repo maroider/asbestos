@@ -12,10 +12,8 @@ crate-type = ["lib", "cdylib"]
 [dependencies]
 asbestos_shared = { path = "../asbestos_shared" }
 detour = "0.7.1"
+dunce = "1.0.0"
 lazy_static = "1.4.0"
 tlhelp32 = "1.0.3"
 widestring = "0.4.0"
 winapi = { version = "0.3.8", features = ["libloaderapi", "winnt", "winuser"] }
-
-[dev-dependencies]
-dunce = "1.0.0"
